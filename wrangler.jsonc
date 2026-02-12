@@ -4,7 +4,7 @@
  */
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "gemini-balance-do",
+	"name": "geminib",
 	"main": "src/index.ts",
 	"compatibility_date": "2025-08-05",
 	"keep_vars": true,//部署时保留 Cloudflare 控制台中设置的变量值，不被 vars 字段覆盖
@@ -23,7 +23,7 @@
 		]
 	},
 	"observability": {
-		"enabled": true
+		"enabled": false
 	},
 		"vars": {
 		"AUTH_KEY": "f2d552b7-da43-4f95-9ac3-6fc1aa857bff",
