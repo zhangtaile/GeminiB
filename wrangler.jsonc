@@ -24,6 +24,11 @@
 	},
 	"observability": {
 		"enabled": true
+	},
+		"vars": {
+		"AUTH_KEY": "f2d552b7-da43-4f95-9ac3-6fc1aa857bff",
+		"HOME_ACCESS_KEY": "a7184040-2922-401c-8d23-2bb926e10311",
+		"FORWARD_CLIENT_KEY_ENABLED": false
 	}
 	/**
 	 * Smart Placement
