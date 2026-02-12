@@ -1,10 +1,21 @@
 import { Hono } from 'hono';
+import { cors } from 'hono/cors';
 import { Render } from './render';
 import { LoadBalancer } from './handler';
 import { getAuthKey } from './auth';
 import { getCookie, setCookie } from 'hono/cookie';
 
 const app = new Hono<{ Bindings: Env }>();
+
+app.use(
+	'*',
+	cors({
+		origin: (origin) => origin || '*',
+		allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+		allowHeaders: ['Content-Type', 'Authorization', 'x-goog-api-key', 'x-goog-api-client', 'x-goog-request-params', 'x-goog-request-id'],
+		maxAge: 86400,
+	})
+);
 
 // 管理页面访问，校验 HOME_ACCESS_KEY
 app.get('/', (c) => {
@@ -37,11 +48,7 @@ app.get('/favicon.ico', async (c) => {
 app.all('*', async (c) => {
 	const id: DurableObjectId = c.env.LOAD_BALANCER.idFromName('loadbalancer');
 	const stub = c.env.LOAD_BALANCER.get(id, { locationHint: 'wnam' });
-	const resp = await stub.fetch(c.req.raw);
-	return new Response(resp.body, {
-		status: resp.status,
-		headers: resp.headers,
-	});
+	return await stub.fetch(c.req.raw);
 });
 
 type Env = {

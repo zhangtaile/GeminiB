@@ -14,7 +14,8 @@ const fixCors = ({ headers, status, statusText }: { headers?: HeadersInit; statu
 	const newHeaders = new Headers(headers);
 	newHeaders.set('Access-Control-Allow-Origin', '*');
 	newHeaders.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-	newHeaders.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-goog-api-key');
+	newHeaders.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-goog-api-key, x-goog-api-client, x-goog-request-params, x-goog-request-id');
+	newHeaders.set('Access-Control-Max-Age', '86400');
 	return { headers: newHeaders, status, statusText };
 };
 
@@ -250,8 +251,7 @@ export class LoadBalancer extends DurableObject {
 
 		console.log('Call Gemini Success');
 
-		const responseHeaders = new Headers(response.headers);
-		responseHeaders.set('Access-Control-Allow-Origin', '*');
+		const { headers: responseHeaders } = fixCors({ headers: response.headers });
 		responseHeaders.delete('transfer-encoding');
 		responseHeaders.delete('connection');
 		responseHeaders.delete('keep-alive');
@@ -270,9 +270,18 @@ export class LoadBalancer extends DurableObject {
 			let headers = new Headers();
 			const url = new URL(targetUrl);
 
-			// Forward content-type header
-			if (request.headers.has('content-type')) {
-				headers.set('content-type', request.headers.get('content-type')!);
+			// Forward essential headers
+			for (const [key, value] of request.headers.entries()) {
+				const lowerKey = key.toLowerCase();
+				if (
+					lowerKey.startsWith('x-goog-') ||
+					lowerKey === 'authorization' ||
+					lowerKey === 'content-type' ||
+					lowerKey === 'accept' ||
+					lowerKey === 'user-agent'
+				) {
+					headers.set(key, value);
+				}
 			}
 
 			if (this.env.FORWARD_CLIENT_KEY_ENABLED) {
