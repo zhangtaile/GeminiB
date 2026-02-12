@@ -18,7 +18,7 @@
 		"bindings": [
 			{
 				"class_name": "LoadBalancer",
-				"name": "LOAD_BALANCER"
+				"name": "geminib"
 			}
 		]
 	},
