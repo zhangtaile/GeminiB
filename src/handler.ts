@@ -19,8 +19,9 @@ const fixCors = ({ headers, status, statusText }: { headers?: HeadersInit; statu
 	return { headers: newHeaders, status, statusText };
 };
 
-const BASE_URL = 'https://generativelanguage.googleapis.com';
-const API_VERSION = 'v1beta';
+const BASE_URL = 'https://aiplatform.googleapis.com';
+const API_VERSION = 'v1';
+const MODEL_PREFIX = 'publishers/google/models';
 const API_CLIENT = 'genai-js/0.21.0';
 
 const makeHeaders = (apiKey: string, more?: Record<string, string>) => ({
@@ -70,7 +71,7 @@ export class VertexBalancer extends DurableObject {
 			const failedCount = row[1] as number;
 
 			try {
-				const response = await fetch(`${BASE_URL}/${API_VERSION}/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+				const response = await fetch(`${BASE_URL}/${API_VERSION}/${MODEL_PREFIX}/gemini-2.5-flash-lite:generateContent?key=${apiKey}`, {
 					method: 'POST',
 					headers: {
 						'Content-Type': 'application/json',
@@ -118,7 +119,7 @@ export class VertexBalancer extends DurableObject {
 		for (const row of Array.from(normalKeys)) {
 			const apiKey = row[0] as string;
 			try {
-				const response = await fetch(`${BASE_URL}/${API_VERSION}/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+				const response = await fetch(`${BASE_URL}/${API_VERSION}/${MODEL_PREFIX}/gemini-2.5-flash-lite:generateContent?key=${apiKey}`, {
 					method: 'POST',
 					headers: {
 						'Content-Type': 'application/json',
@@ -199,7 +200,9 @@ export class VertexBalancer extends DurableObject {
 		// Direct Gemini proxy
 		const authKey = this.env.AUTH_KEY;
 
-		let targetUrl = `${BASE_URL}${pathname}${search}`;
+		// 规范化路径：将任何以 /v1.../models/ 开头的路径替换为 Vertex AI 的路径格式
+		const normalizedPathname = pathname.replace(/^\/v[^\/]+\/models\//, `/${MODEL_PREFIX}/`);
+		let targetUrl = `${BASE_URL}/${API_VERSION}${normalizedPathname}${search}`;
 
 		if (this.env.FORWARD_CLIENT_KEY_ENABLED) {
 			return this.forwardRequestWithLoadBalancing(targetUrl, request);
@@ -313,7 +316,7 @@ export class VertexBalancer extends DurableObject {
 	}
 
 	async handleModels(apiKey: string) {
-		const response = await fetch(`${BASE_URL}/${API_VERSION}/models`, {
+		const response = await fetch(`${BASE_URL}/${API_VERSION}/${MODEL_PREFIX}`, {
 			headers: makeHeaders(apiKey),
 		});
 
@@ -346,24 +349,24 @@ export class VertexBalancer extends DurableObject {
 
 		let model;
 		if (req.model.startsWith('models/')) {
-			model = req.model;
+			model = req.model.substring(7);
 		} else {
 			if (!req.model.startsWith('gemini-')) {
 				req.model = DEFAULT_EMBEDDINGS_MODEL;
 			}
-			model = 'models/' + req.model;
+			model = req.model;
 		}
 
 		if (!Array.isArray(req.input)) {
 			req.input = [req.input];
 		}
 
-		const response = await fetch(`${BASE_URL}/${API_VERSION}/${model}:batchEmbedContents`, {
+		const response = await fetch(`${BASE_URL}/${API_VERSION}/${MODEL_PREFIX}/${model}:batchEmbedContents`, {
 			method: 'POST',
 			headers: makeHeaders(apiKey, { 'Content-Type': 'application/json' }),
 			body: JSON.stringify({
 				requests: req.input.map((text: string) => ({
-					model,
+					model: `models/${model}`,
 					content: { parts: { text } },
 					outputDimensionality: req.dimensions,
 				})),
@@ -391,7 +394,7 @@ export class VertexBalancer extends DurableObject {
 	}
 
 	async handleCompletions(req: any, apiKey: string) {
-		const DEFAULT_MODEL = 'gemini-2.5-flash';
+		const DEFAULT_MODEL = 'gemini-2.5-flash-lite';
 		let model = DEFAULT_MODEL;
 
 		switch (true) {
@@ -431,7 +434,7 @@ export class VertexBalancer extends DurableObject {
 		}
 
 		const TASK = req.stream ? 'streamGenerateContent' : 'generateContent';
-		let url = `${BASE_URL}/${API_VERSION}/models/${model}:${TASK}`;
+		let url = `${BASE_URL}/${API_VERSION}/${MODEL_PREFIX}/${model}:${TASK}`;
 		if (req.stream) {
 			url += '?alt=sse';
 		}
@@ -1077,7 +1080,7 @@ export class VertexBalancer extends DurableObject {
 			const checkResults = await Promise.all(
 				keys.map(async (key) => {
 					try {
-						const response = await fetch(`${BASE_URL}/${API_VERSION}/models/gemini-2.5-flash:generateContent?key=${key}`, {
+						const response = await fetch(`${BASE_URL}/${API_VERSION}/${MODEL_PREFIX}/gemini-2.5-flash-lite:generateContent?key=${key}`, {
 							method: 'POST',
 							headers: {
 								'Content-Type': 'application/json',
