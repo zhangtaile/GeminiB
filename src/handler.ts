@@ -30,7 +30,7 @@ const makeHeaders = (apiKey: string, more?: Record<string, string>) => ({
 });
 
 /** A Durable Object's behavior is defined in an exported Javascript class */
-export class LoadBalancer extends DurableObject {
+export class VertexBalancer extends DurableObject {
 	env: Env;
 	/**
 	 * The constructor is invoked once upon creation of the Durable Object, i.e. the first call to

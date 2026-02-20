@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { Render } from './render';
-import { LoadBalancer } from './handler';
+import { VertexBalancer } from './handler';
 import { getAuthKey } from './auth';
 import { getCookie, setCookie } from 'hono/cookie';
 
@@ -46,13 +46,13 @@ app.get('/favicon.ico', async (c) => {
 
 // 其它请求转发到 Durable Object
 app.all('*', async (c) => {
-	const id: DurableObjectId = c.env.LOAD_BALANCER.idFromName('loadbalancer');
-	const stub = c.env.LOAD_BALANCER.get(id, { locationHint: 'wnam' });
+	const id: DurableObjectId = c.env.VERTEX_BALANCER_.idFromName('loadbalancer');
+	const stub = c.env.VERTEX_BALANCER_.get(id, { locationHint: 'wnam' });
 	return await stub.fetch(c.req.raw);
 });
 
 type Env = {
-	LOAD_BALANCER: DurableObjectNamespace<LoadBalancer>;
+	VERTEX_BALANCER_: DurableObjectNamespace<VertexBalancer>;
 	AUTH_KEY: string;
 	HOME_ACCESS_KEY: string;
 	FORWARD_CLIENT_KEY_ENABLED: string;
@@ -62,4 +62,4 @@ export default {
 	fetch: app.fetch,
 };
 
-export { LoadBalancer };
+export { VertexBalancer };
