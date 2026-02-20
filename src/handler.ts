@@ -1086,7 +1086,10 @@ export class VertexBalancer extends DurableObject {
 								'Content-Type': 'application/json',
 							},
 							body: JSON.stringify({
-								contents: [{ parts: [{ text: 'hi' }] }],
+								contents: [{ 
+									"role": "user",
+									parts: [{ text: 'hi' }] 
+								}],
 							}),
 						});
 						return { key, valid: response.ok, error: response.ok ? null : await response.text() };
