@@ -1,4 +1,4 @@
-# Gemini API 负载均衡器 (gemini-balance-do)
+# Gemini  API 负载均衡器 (gemini-balance-do)
 
 > 这是一个部署在 Cloudflare Workers 上的 Gemini API 负载均衡器和代理服务，使用了 Durable Objects 来存储和管理 API 密钥，无论你连接的 worker 节点在属于哪个地区，最后都会转发到美国以后再向 Gemini 发起请求，不用再担心地区不支持的问题！
 
