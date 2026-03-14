@@ -436,6 +436,7 @@ export class LoadBalancer extends DurableObject {
 			url += '?alt=sse';
 		}
 
+		console.log(`Original request from client: ${JSON.stringify(req)}`);
 		console.log(`Sending request to Gemini: ${url}, body: ${JSON.stringify(body)}`);
 
 		const response = await fetch(url, {
