@@ -427,7 +427,7 @@ export class LoadBalancer extends DurableObject {
 			case req.model.endsWith('-search-preview'):
 			case req.tools?.some((tool: any) => tool.function?.name === 'googleSearch'):
 				body.tools = body.tools || [];
-				body.tools.push({ function_declarations: [{ name: 'googleSearch', parameters: {} }] });
+				body.tools.push({ google_search_retrieval: {} });
 		}
 
 		const TASK = req.stream ? 'streamGenerateContent' : 'generateContent';
@@ -435,6 +435,8 @@ export class LoadBalancer extends DurableObject {
 		if (req.stream) {
 			url += '?alt=sse';
 		}
+
+		console.log(`Sending request to Gemini: ${url}, body: ${JSON.stringify(body)}`);
 
 		const response = await fetch(url, {
 			method: 'POST',
@@ -467,12 +469,14 @@ export class LoadBalancer extends DurableObject {
 							id,
 							last: [],
 							reasoningLast: [],
+							groundingSent: [],
 							shared,
 						} as any)
 					)
 					.pipeThrough(new TextEncoderStream());
 			} else {
 				let body: any = await response.text();
+				console.log(`Received response from Gemini: ${body}`);
 				try {
 					body = JSON.parse(body);
 					if (!body.candidates) {
@@ -487,6 +491,10 @@ export class LoadBalancer extends DurableObject {
 				}
 				responseBody = this.processCompletionsResponse(body, model, id);
 			}
+		} else {
+			const errorText = await response.text();
+			console.error(`Gemini API error: ${response.status} ${response.statusText}, body: ${errorText}`);
+			return new Response(errorText, fixCors(response));
 		}
 		return new Response(responseBody, fixCors(response));
 	}
@@ -496,6 +504,29 @@ export class LoadBalancer extends DurableObject {
 		const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
 		const randomChar = () => characters[Math.floor(Math.random() * characters.length)];
 		return Array.from({ length: 29 }, randomChar).join('');
+	}
+
+	private processGroundingMetadata(metadata: any): string {
+		if (!metadata) return '';
+		let footer = '\n\n---\n\n**Search Results:**\n';
+		let hasContent = false;
+		if (metadata.searchEntryPoint?.renderedContent) {
+			footer += metadata.searchEntryPoint.renderedContent + '\n\n';
+			hasContent = true;
+		}
+		if (metadata.groundingChunks) {
+			metadata.groundingChunks.forEach((chunk: any, index: number) => {
+				if (chunk.web) {
+					footer += `[${index + 1}] [${chunk.web.title}](${chunk.web.uri})\n`;
+					hasContent = true;
+				}
+			});
+		}
+		if (metadata.webSearchQueries) {
+			footer += '\n**Search Queries:** ' + metadata.webSearchQueries.join(', ') + '\n';
+			hasContent = true;
+		}
+		return hasContent ? footer : '';
 	}
 
 	private async transformRequest(req: any) {
@@ -725,26 +756,22 @@ export class LoadBalancer extends DurableObject {
 		};
 
 		const transformCandidatesMessage = (cand: any) => {
-			const message = { role: 'assistant', content: [] as string[] };
 			let reasoningContent = '';
 			let finalContent = '';
 
 			for (const part of cand.content?.parts ?? []) {
-				if (part.text) {
+				const text = part.text || (typeof part.thought === 'string' ? part.thought : '');
+				const hasThought = part.thoughtToken || part.thought || part.thoughtTokens || (part.executableCode && part.executableCode.language === 'thought');
+
+				if (text || hasThought) {
 					// 检查是否是思考内容
-					// Gemini API 可能使用多种方式标识思考内容
 					const isThoughtContent =
-						part.thoughtToken ||
-						part.thought ||
-						part.thoughtTokens ||
-						(part.executableCode && part.executableCode.language === 'thought') ||
+						hasThought ||
 						// 检查文本是否以思考标记开头
-						(part.text && (part.text.startsWith('<thinking>') || part.text.startsWith('思考：') || part.text.startsWith('Thinking:')));
+						(text && (text.startsWith('<thinking>') || text.startsWith('思考：') || text.startsWith('Thinking:')));
 
 					if (isThoughtContent) {
-						// 这是思考内容，应该放在 reasoning_content 字段中
-						// 如果文本包含思考标记，需要移除这些标记
-						let cleanText = part.text;
+						let cleanText = text || '';
 						if (cleanText.startsWith('<thinking>')) {
 							cleanText = cleanText.replace('<thinking>', '').replace('</thinking>', '');
 						} else if (cleanText.startsWith('思考：')) {
@@ -754,10 +781,14 @@ export class LoadBalancer extends DurableObject {
 						}
 						reasoningContent += cleanText;
 					} else {
-						// 这是正常的回答内容
-						finalContent += part.text;
+						finalContent += text;
 					}
 				}
+			}
+
+			// 添加搜索结果
+			if (cand.groundingMetadata) {
+				finalContent += this.processGroundingMetadata(cand.groundingMetadata);
 			}
 
 			const messageObj: any = {
@@ -840,29 +871,26 @@ export class LoadBalancer extends DurableObject {
 
 		if (candidates) {
 			for (const cand of candidates) {
-				const { index, content, finishReason } = cand;
-				const { parts } = content;
+				const { index, content, finishReason, groundingMetadata } = cand;
+				const parts = content?.parts ?? [];
 
 				// 分别处理思考内容和正常内容
 				let reasoningText = '';
 				let finalText = '';
 
 				for (const part of parts) {
-					if (part.text) {
+					const text = part.text || (typeof part.thought === 'string' ? part.thought : '');
+					const hasThought = part.thoughtToken || part.thought || part.thoughtTokens || (part.executableCode && part.executableCode.language === 'thought');
+
+					if (text || hasThought) {
 						// 检查是否是思考内容
-						// Gemini API 可能使用多种方式标识思考内容
 						const isThoughtContent =
-							part.thoughtToken ||
-							part.thought ||
-							part.thoughtTokens ||
-							(part.executableCode && part.executableCode.language === 'thought') ||
+							hasThought ||
 							// 检查文本是否以思考标记开头
-							(part.text && (part.text.startsWith('<thinking>') || part.text.startsWith('思考：') || part.text.startsWith('Thinking:')));
+							(text && (text.startsWith('<thinking>') || text.startsWith('思考：') || text.startsWith('Thinking:')));
 
 						if (isThoughtContent) {
-							// 这是思考内容
-							// 如果文本包含思考标记，需要移除这些标记
-							let cleanText = part.text;
+							let cleanText = text || '';
 							if (cleanText.startsWith('<thinking>')) {
 								cleanText = cleanText.replace('<thinking>', '').replace('</thinking>', '');
 							} else if (cleanText.startsWith('思考：')) {
@@ -872,8 +900,7 @@ export class LoadBalancer extends DurableObject {
 							}
 							reasoningText += cleanText;
 						} else {
-							// 这是正常的回答内容
-							finalText += part.text;
+							finalText += text;
 						}
 					}
 				}
@@ -891,7 +918,6 @@ export class LoadBalancer extends DurableObject {
 					if (reasoningText.startsWith(lastReasoningText)) {
 						reasoningDelta = reasoningText.substring(lastReasoningText.length);
 					} else {
-						// Find the common prefix
 						let i = 0;
 						while (i < reasoningText.length && i < lastReasoningText.length && reasoningText[i] === lastReasoningText[i]) {
 							i++;
@@ -931,13 +957,10 @@ export class LoadBalancer extends DurableObject {
 					if (finalText.startsWith(lastText)) {
 						delta = finalText.substring(lastText.length);
 					} else {
-						// Find the common prefix
 						let i = 0;
 						while (i < finalText.length && i < lastText.length && finalText[i] === lastText[i]) {
 							i++;
 						}
-						// Send the rest of the new text as delta.
-						// This might not be perfect for all clients, but it prevents data loss.
 						delta = finalText.substring(i);
 					}
 
@@ -961,8 +984,51 @@ export class LoadBalancer extends DurableObject {
 					}
 				}
 
+				// 处理搜索结果（只发送一次，通常在最后或有结果时）
+				if (groundingMetadata && !this.groundingSent[index]) {
+					const groundingText = this.processGroundingMetadata(groundingMetadata);
+					if (groundingText) {
+						const obj = {
+							id: this.id,
+							object: 'chat.completion.chunk',
+							created: Math.floor(Date.now() / 1000),
+							model: this.model,
+							choices: [
+								{
+									index,
+									delta: { content: groundingText },
+									finish_reason: null,
+								},
+							],
+						};
+						controller.enqueue(`data: ${JSON.stringify(obj)}\n\n`);
+						this.groundingSent[index] = true;
+					}
+				}
+
 				// 如果有完成原因，发送完成信号
 				if (finishReason) {
+					// 确保在完成前发送搜索结果
+					if (groundingMetadata && !this.groundingSent[index]) {
+						const groundingText = this.processGroundingMetadata(groundingMetadata);
+						if (groundingText) {
+							const obj = {
+								id: this.id,
+								object: 'chat.completion.chunk',
+								created: Math.floor(Date.now() / 1000),
+								model: this.model,
+								choices: [
+									{
+										index,
+										delta: { content: groundingText },
+										finish_reason: null,
+									},
+								],
+							};
+							controller.enqueue(`data: ${JSON.stringify(obj)}\n\n`);
+							this.groundingSent[index] = true;
+						}
+					}
 					const finishObj = {
 						id: this.id,
 						object: 'chat.completion.chunk',
